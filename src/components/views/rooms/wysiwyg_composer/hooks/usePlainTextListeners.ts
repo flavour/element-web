@@ -154,8 +154,8 @@ export function usePlainTextListeners(
                 // TODO use getKeyBindingsManager().getMessageComposerAction(event) like in useInputEventProcessor
                 const sendModifierIsPressed = IS_MAC ? event.metaKey : event.ctrlKey;
 
-                // if enter should send, send if the user is not pushing shift
-                if (enterShouldSend && !event.shiftKey) {
+                // if enter should send, send if the user is not pushing a newline modifier
+                if (enterShouldSend && !event.shiftKey && !event.altKey) {
                     event.preventDefault();
                     event.stopPropagation();
                     send();

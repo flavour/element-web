@@ -106,6 +106,9 @@ export async function runSlashCommand(
 }
 
 export async function shouldSendAnyway(commandText: string): Promise<boolean> {
+    // Always pass-through unknown slash commands
+    return true;
+
     // ask the user if their unknown command should be sent as a message
     const { finished } = Modal.createDialog(QuestionDialog, {
         title: _t("slash_command|unknown_command"),

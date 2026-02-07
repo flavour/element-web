@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import { IS_MAC, Key } from "./Keyboard";
+import { Key } from "./Keyboard";
 import SettingsStore from "./settings/SettingsStore";
 import SdkConfig from "./SdkConfig";
 import { type IKeyBindingsProvider, type KeyBinding } from "./KeyBindingsManager";
@@ -62,15 +62,13 @@ const messageComposerBindings = (): KeyBinding[] => {
                 shiftKey: true,
             },
         });
-        if (IS_MAC) {
-            bindings.push({
-                action: KeyBindingAction.NewLine,
-                keyCombo: {
-                    key: Key.ENTER,
-                    altKey: true,
-                },
-            });
-        }
+        bindings.push({
+            action: KeyBindingAction.NewLine,
+            keyCombo: {
+                key: Key.ENTER,
+                altKey: true,
+            },
+        });
     }
 
     return bindings;

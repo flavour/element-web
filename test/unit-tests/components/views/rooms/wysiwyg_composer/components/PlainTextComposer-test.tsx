@@ -156,6 +156,22 @@ describe("PlainTextComposer", () => {
         expect(textBox.innerHTML).toBe(expectedInnerHtml);
     });
 
+    it("Should insert a newline character when alt enter is pressed when ctrlEnterToSend is false", async () => {
+        //When
+        const onSend = jest.fn();
+        customRender(jest.fn(), onSend);
+        const textBox = screen.getByRole("textbox");
+        const inputWithAltEnter = "new{Alt>}{enter}{/Alt}line";
+        const expectedInnerHtml = "new\nline";
+
+        await userEvent.click(textBox);
+        await userEvent.type(textBox, inputWithAltEnter);
+
+        // Then it does not send a message, but inserts a newline character
+        expect(onSend).toHaveBeenCalledTimes(0);
+        expect(textBox.innerHTML).toBe(expectedInnerHtml);
+    });
+
     it("Should insert a newline character when shift enter is pressed when ctrlEnterToSend is true", async () => {
         //When
         mockUseSettingValue.mockReturnValue(true);

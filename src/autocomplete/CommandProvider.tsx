@@ -14,7 +14,6 @@ import { type Room } from "matrix-js-sdk/src/matrix";
 
 import { _t } from "../languageHandler";
 import AutocompleteProvider from "./AutocompleteProvider";
-import QueryMatcher from "./QueryMatcher";
 import { TextualCompletion } from "./Components";
 import { type ICompletion, type ISelectionRange } from "./Autocompleter";
 import { type Command, Commands, CommandMap } from "../slash-commands/SlashCommands";
@@ -24,15 +23,9 @@ import { MatrixClientPeg } from "../MatrixClientPeg";
 const COMMAND_RE = /(^\/\w*)(?: .*)?/g;
 
 export default class CommandProvider extends AutocompleteProvider {
-    public matcher: QueryMatcher<Command>;
     private room: Room;
     public constructor(room: Room, renderingType?: TimelineRenderingType) {
         super({ commandRegex: COMMAND_RE, renderingType });
-        this.matcher = new QueryMatcher(Commands, {
-            keys: ["command", "args", "description"],
-            funcs: [({ aliases }) => aliases.join(" ")], // aliases
-            context: renderingType,
-        });
         this.room = room;
     }
 
@@ -63,8 +56,13 @@ export default class CommandProvider extends AutocompleteProvider {
                 // We exclude the limit on purpose to have a comprehensive list
                 matches = Commands;
             } else {
-                // otherwise fuzzy match against all of the fields
-                matches = this.matcher.match(command[1], limit);
+                // for an in-progress command (no arguments yet), only match the command name or aliases
+                // so inputs like /new do not jump to commands that only mention "new" in arguments/description
+                const commandName = command[1].slice(1).toLowerCase();
+                matches = Commands.filter((result) => {
+                    if (result.command.toLowerCase().startsWith(commandName)) return true;
+                    return result.aliases.some((alias) => alias.toLowerCase().startsWith(commandName));
+                });
             }
         }
 

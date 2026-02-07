@@ -84,4 +84,47 @@ describe("CommandProvider", () => {
         expect(enabledCompletions.length).toBe(1);
         expect(enabledCompletions[0].completion).toBe("/enabled test");
     });
+
+    it("should only match command names and aliases for incomplete slash commands", async () => {
+        const commandThatOnlyMatchesArgs = new Command({
+            command: "upgraderoom",
+            args: "<new_version>",
+            description: _td("slash_command|upgraderoom"),
+            runFn: jest.fn(),
+            category: CommandCategories.admin,
+            isEnabled: () => true,
+        });
+
+        const commandThatMatchesName = new Command({
+            command: "newroom",
+            args: "",
+            description: _td("slash_command|shrug"),
+            runFn: jest.fn(),
+            category: CommandCategories.messages,
+            isEnabled: () => true,
+        });
+
+        Object.defineProperty(SlashCommands, "Commands", {
+            value: [commandThatOnlyMatchesArgs, commandThatMatchesName],
+            configurable: true,
+        });
+
+        Object.defineProperty(SlashCommands, "CommandMap", {
+            value: new Map<string, Command>([
+                ["upgraderoom", commandThatOnlyMatchesArgs],
+                ["newroom", commandThatMatchesName],
+            ]),
+            configurable: true,
+        });
+
+        const provider = new CommandProvider(room);
+
+        const completions = await provider.getCompletions("/new", {
+            beginning: true,
+            start: 0,
+            end: 4,
+        });
+
+        expect(completions.map((c) => c.completion)).toEqual(["/newroom "]);
+    });
 });
