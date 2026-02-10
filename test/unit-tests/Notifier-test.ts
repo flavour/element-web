@@ -151,6 +151,7 @@ describe("Notifier", () => {
             maySendNotifications: jest.fn().mockReturnValue(true),
             displayNotification: jest.fn(),
             loudNotification: jest.fn(),
+            maybeReadAloudNotification: jest.fn(),
         });
 
         Notifier.isBodyEnabled = jest.fn().mockReturnValue(true);
@@ -627,6 +628,7 @@ describe("Notifier", () => {
             expect(Notifier.displayPopupNotification).toHaveBeenCalledTimes(0);
             Notifier.evaluateEvent(testEvent);
             expect(Notifier.displayPopupNotification).toHaveBeenCalledTimes(0);
+            expect(MockPlatform.maybeReadAloudNotification).toHaveBeenCalledWith(testEvent, testRoom);
 
             const eventFromOtherRoom = mkEvent({
                 event: true,

@@ -245,6 +245,8 @@ export default abstract class BasePlatform {
 
     public loudNotification(ev: MatrixEvent, room: Room): void {}
 
+    public maybeReadAloudNotification(ev: MatrixEvent, room: Room): void {}
+
     public clearNotification(notif: Notification): void {
         // Some browsers don't support this, e.g Safari on iOS
         // https://developer.mozilla.org/en-US/docs/Web/API/Notification/close

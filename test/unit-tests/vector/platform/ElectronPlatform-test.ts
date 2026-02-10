@@ -293,11 +293,135 @@ describe("ElectronPlatform", () => {
                 sender: "@alice:server.org",
             });
 
-            platform.loudNotification(event, new Room("!room:server", {} as any, userId));
+            platform.maybeReadAloudNotification(event, new Room("!room:server", {} as any, userId));
             await Promise.resolve();
 
             expect(ipcCallSpy).not.toHaveBeenCalledWith("matrixTtsWarmup");
             expect(ipcCallSpy).not.toHaveBeenCalledWith("matrixTtsSynthesize", expect.anything());
+        });
+
+        it("does not enqueue Matrix TTS when allowlist is empty", async () => {
+            const platform = new ElectronPlatform();
+            // @ts-ignore private access for unit testing
+            const ipcCallSpy = jest.spyOn(platform.ipc, "call").mockResolvedValue(undefined);
+            mockElectron.getSettingValue.mockImplementation(async (settingName: string) => {
+                if (settingName === "Electron.matrixTtsEnabled") {
+                    return true;
+                }
+                if (settingName === "Electron.matrixTtsAllowlist") {
+                    return [];
+                }
+                if (settingName === "Electron.matrixTtsMaxChunkSize") {
+                    return 220;
+                }
+                return undefined;
+            });
+
+            const event = new MatrixEvent({
+                type: "m.room.message",
+                content: {
+                    body: "hello from matrix",
+                },
+                sender: "@alice:server.org",
+            });
+
+            platform.maybeReadAloudNotification(event, new Room("!room:server", {} as any, userId));
+            await Promise.resolve();
+
+            expect(ipcCallSpy).not.toHaveBeenCalledWith("matrixTtsWarmup");
+            expect(ipcCallSpy).not.toHaveBeenCalledWith("matrixTtsSynthesize", expect.anything());
+        });
+
+        it("enqueues Matrix TTS when sender is allowlisted", async () => {
+            const platform = new ElectronPlatform();
+            // @ts-ignore private access for unit testing
+            const ipcCallSpy = jest.spyOn(platform.ipc, "call").mockImplementation(async (name: string) => {
+                if (name === "matrixTtsWarmup") {
+                    return undefined;
+                }
+
+                if (name === "matrixTtsSynthesize") {
+                    return { audioBase64: "ZmFrZQ==", mediaType: "audio/wav" };
+                }
+
+                return undefined;
+            });
+            // @ts-ignore private access for unit testing
+            jest.spyOn(platform, "playMatrixTtsAudio").mockResolvedValue(undefined);
+
+            mockElectron.getSettingValue.mockImplementation(async (settingName: string) => {
+                if (settingName === "Electron.matrixTtsEnabled") {
+                    return true;
+                }
+                if (settingName === "Electron.matrixTtsAllowlist") {
+                    return ["@alice:server.org"];
+                }
+                if (settingName === "Electron.matrixTtsMaxChunkSize") {
+                    return 220;
+                }
+                return undefined;
+            });
+
+            const event = new MatrixEvent({
+                type: "m.room.message",
+                content: {
+                    body: "hello from matrix",
+                },
+                sender: "@alice:server.org",
+            });
+
+            platform.maybeReadAloudNotification(event, new Room("!room:server", {} as any, userId));
+
+            await waitFor(() => {
+                expect(ipcCallSpy).toHaveBeenCalledWith("matrixTtsWarmup");
+                expect(ipcCallSpy).toHaveBeenCalledWith("matrixTtsSynthesize", { text: "hello from matrix" });
+            });
+        });
+
+        it("enqueues Matrix TTS when sender localpart is allowlisted", async () => {
+            const platform = new ElectronPlatform();
+            // @ts-ignore private access for unit testing
+            const ipcCallSpy = jest.spyOn(platform.ipc, "call").mockImplementation(async (name: string) => {
+                if (name === "matrixTtsWarmup") {
+                    return undefined;
+                }
+
+                if (name === "matrixTtsSynthesize") {
+                    return { audioBase64: "ZmFrZQ==", mediaType: "audio/wav" };
+                }
+
+                return undefined;
+            });
+            // @ts-ignore private access for unit testing
+            jest.spyOn(platform, "playMatrixTtsAudio").mockResolvedValue(undefined);
+
+            mockElectron.getSettingValue.mockImplementation(async (settingName: string) => {
+                if (settingName === "Electron.matrixTtsEnabled") {
+                    return true;
+                }
+                if (settingName === "Electron.matrixTtsAllowlist") {
+                    return ["alice"];
+                }
+                if (settingName === "Electron.matrixTtsMaxChunkSize") {
+                    return 220;
+                }
+                return undefined;
+            });
+
+            const event = new MatrixEvent({
+                type: "m.room.message",
+                content: {
+                    body: "hello from matrix",
+                },
+                sender: "@alice:server.org",
+            });
+
+            platform.maybeReadAloudNotification(event, new Room("!room:server", {} as any, userId));
+
+            await waitFor(() => {
+                expect(ipcCallSpy).toHaveBeenCalledWith("matrixTtsWarmup");
+                expect(ipcCallSpy).toHaveBeenCalledWith("matrixTtsSynthesize", { text: "hello from matrix" });
+            });
         });
     });
 

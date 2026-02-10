@@ -17,6 +17,7 @@ import MediaDeviceHandler, {
     MediaDeviceKindEnum,
 } from "../../../../../../../src/MediaDeviceHandler";
 import { flushPromises } from "../../../../../../test-utils";
+import PlatformPeg from "../../../../../../../src/PlatformPeg";
 
 jest.mock("../../../../../../../src/MediaDeviceHandler");
 const MediaDeviceHandlerMock = mocked(MediaDeviceHandler);
@@ -56,6 +57,21 @@ describe("<VoiceUserSettingsTab />", () => {
 
         // @ts-ignore bad mocking
         MediaDeviceHandlerMock.instance = { setDevice: jest.fn().mockResolvedValue(undefined) };
+
+        jest.spyOn(PlatformPeg, "get").mockReturnValue({
+            supportsSetting: (settingName?: string) =>
+                settingName === "Electron.matrixTtsAllowlist" || settingName === "Electron.matrixTtsMaxChunkSize",
+            getSettingValue: jest.fn(async (settingName: string) => {
+                if (settingName === "Electron.matrixTtsAllowlist") {
+                    return ["@alice:example.org"];
+                }
+                if (settingName === "Electron.matrixTtsMaxChunkSize") {
+                    return 220;
+                }
+                return undefined;
+            }),
+            setSettingValue: jest.fn().mockResolvedValue(undefined),
+        } as any);
     });
 
     describe("devices", () => {
@@ -133,5 +149,36 @@ describe("<VoiceUserSettingsTab />", () => {
         expect(MediaDeviceHandler.setAudioAutoGainControl).toHaveBeenCalledWith(true);
         expect(MediaDeviceHandler.setAudioEchoCancellation).toHaveBeenCalledWith(false);
         expect(MediaDeviceHandler.setAudioNoiseSuppression).toHaveBeenCalledWith(true);
+    });
+
+    it("renders matrix TTS settings and loads persisted values", async () => {
+        render(getComponent());
+        await flushPromises();
+
+        expect(screen.getByLabelText("TTS allowlist (one Matrix user ID per line)")).toHaveValue("@alice:example.org");
+        expect(screen.getByLabelText("TTS max chunk size")).toHaveValue(220);
+    });
+
+    it("persists allowlist and clamps chunk size", async () => {
+        const setSettingValue = jest.fn().mockResolvedValue(undefined);
+        jest.spyOn(PlatformPeg, "get").mockReturnValue({
+            supportsSetting: (settingName?: string) =>
+                settingName === "Electron.matrixTtsAllowlist" || settingName === "Electron.matrixTtsMaxChunkSize",
+            getSettingValue: jest.fn(async () => undefined),
+            setSettingValue,
+        } as any);
+
+        render(getComponent());
+        await flushPromises();
+
+        fireEvent.change(screen.getByLabelText("TTS allowlist (one Matrix user ID per line)"), {
+            target: { value: "@alice:example.org\n@bob:example.org" },
+        });
+        fireEvent.change(screen.getByLabelText("TTS max chunk size"), {
+            target: { value: "5" },
+        });
+
+        expect(setSettingValue).toHaveBeenCalledWith("Electron.matrixTtsAllowlist", ["@alice:example.org", "@bob:example.org"]);
+        expect(setSettingValue).toHaveBeenCalledWith("Electron.matrixTtsMaxChunkSize", 20);
     });
 });

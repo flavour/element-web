@@ -24,6 +24,13 @@ import SettingsTab from "../SettingsTab";
 import { SettingsSection } from "../../shared/SettingsSection";
 import { SettingsSubsection } from "../../shared/SettingsSubsection";
 import MatrixClientContext from "../../../../../contexts/MatrixClientContext";
+import PlatformPeg from "../../../../../PlatformPeg";
+
+const MATRIX_TTS_ALLOWLIST_SETTING = "Electron.matrixTtsAllowlist";
+const MATRIX_TTS_MAX_CHUNK_SIZE_SETTING = "Electron.matrixTtsMaxChunkSize";
+const DEFAULT_MATRIX_TTS_MAX_CHUNK_SIZE = 220;
+const MIN_MATRIX_TTS_MAX_CHUNK_SIZE = 20;
+const MAX_MATRIX_TTS_MAX_CHUNK_SIZE = 2000;
 
 interface IState {
     mediaDevices: IMediaDevices | null;
@@ -33,6 +40,9 @@ interface IState {
     audioAutoGainControl: boolean;
     audioEchoCancellation: boolean;
     audioNoiseSuppression: boolean;
+    matrixTtsSupported: boolean;
+    matrixTtsAllowlistText: string;
+    matrixTtsMaxChunkSize: string;
 }
 
 /**
@@ -65,6 +75,9 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
             audioAutoGainControl: MediaDeviceHandler.getAudioAutoGainControl(),
             audioEchoCancellation: MediaDeviceHandler.getAudioEchoCancellation(),
             audioNoiseSuppression: MediaDeviceHandler.getAudioNoiseSuppression(),
+            matrixTtsSupported: false,
+            matrixTtsAllowlistText: "",
+            matrixTtsMaxChunkSize: String(DEFAULT_MATRIX_TTS_MAX_CHUNK_SIZE),
         };
     }
 
@@ -73,7 +86,78 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
         if (canSeeDeviceLabels) {
             await this.refreshMediaDevices();
         }
+
+        await this.loadMatrixTtsSettings();
     }
+
+    private async loadMatrixTtsSettings(): Promise<void> {
+        const platform = PlatformPeg.get();
+        if (!platform) {
+            return;
+        }
+
+        const matrixTtsSupported =
+            platform.supportsSetting(MATRIX_TTS_ALLOWLIST_SETTING) &&
+            platform.supportsSetting(MATRIX_TTS_MAX_CHUNK_SIZE_SETTING);
+        if (!matrixTtsSupported) {
+            return;
+        }
+
+        const [allowlist, maxChunkSize] = await Promise.all([
+            platform.getSettingValue(MATRIX_TTS_ALLOWLIST_SETTING).catch(() => []),
+            platform.getSettingValue(MATRIX_TTS_MAX_CHUNK_SIZE_SETTING).catch(() => DEFAULT_MATRIX_TTS_MAX_CHUNK_SIZE),
+        ]);
+
+        const allowlistLines = Array.isArray(allowlist)
+            ? allowlist.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            : [];
+        const normalizedMaxChunkSize = this.clampChunkSize(maxChunkSize);
+
+        this.setState({
+            matrixTtsSupported,
+            matrixTtsAllowlistText: allowlistLines.join("\n"),
+            matrixTtsMaxChunkSize: String(normalizedMaxChunkSize),
+        });
+    }
+
+    private parseAllowlist(input: string): string[] {
+        const unique = new Set<string>();
+        for (const line of input.split(/\r?\n/)) {
+            const normalized = line.trim();
+            if (!normalized) {
+                continue;
+            }
+            unique.add(normalized);
+        }
+
+        return Array.from(unique);
+    }
+
+    private clampChunkSize(input: unknown): number {
+        const parsed = Number.parseInt(String(input), 10);
+        if (!Number.isFinite(parsed)) {
+            return DEFAULT_MATRIX_TTS_MAX_CHUNK_SIZE;
+        }
+
+        return Math.max(MIN_MATRIX_TTS_MAX_CHUNK_SIZE, Math.min(MAX_MATRIX_TTS_MAX_CHUNK_SIZE, parsed));
+    }
+
+    private onMatrixTtsAllowlistChanged: ChangeEventHandler<HTMLTextAreaElement> = (event) => {
+        const matrixTtsAllowlistText = event.target.value;
+        this.setState({ matrixTtsAllowlistText });
+
+        const platform = PlatformPeg.get();
+        const allowlist = this.parseAllowlist(matrixTtsAllowlistText);
+        void platform?.setSettingValue(MATRIX_TTS_ALLOWLIST_SETTING, allowlist);
+    };
+
+    private onMatrixTtsMaxChunkSizeChanged: ChangeEventHandler<HTMLInputElement> = (event) => {
+        const clampedValue = this.clampChunkSize(event.target.value);
+        this.setState({ matrixTtsMaxChunkSize: String(clampedValue) });
+
+        const platform = PlatformPeg.get();
+        void platform?.setSettingValue(MATRIX_TTS_MAX_CHUNK_SIZE_SETTING, clampedValue);
+    };
 
     private refreshMediaDevices = async (stream?: MediaStream): Promise<void> => {
         this.setState({
@@ -241,6 +325,27 @@ export default class VoiceUserSettingsTab extends React.Component<EmptyObject, I
                                 hideIfCannotSet
                             />
                         </SettingsSubsection>
+
+                        {this.state.matrixTtsSupported && (
+                            <SettingsSubsection heading="Matrix TTS">
+                                <Field
+                                    element="textarea"
+                                    label="TTS allowlist (one Matrix user ID per line)"
+                                    value={this.state.matrixTtsAllowlistText}
+                                    onChange={this.onMatrixTtsAllowlistChanged}
+                                    rows={4}
+                                />
+                                <Field
+                                    element="input"
+                                    type="number"
+                                    label="TTS max chunk size"
+                                    value={this.state.matrixTtsMaxChunkSize}
+                                    min={MIN_MATRIX_TTS_MAX_CHUNK_SIZE}
+                                    max={MAX_MATRIX_TTS_MAX_CHUNK_SIZE}
+                                    onChange={this.onMatrixTtsMaxChunkSizeChanged}
+                                />
+                            </SettingsSubsection>
+                        )}
                     </SettingsSection>
                 </Form.Root>
             </SettingsTab>

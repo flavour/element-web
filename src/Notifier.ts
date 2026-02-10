@@ -457,6 +457,7 @@ class NotifierClass extends TypedEventEmitter<keyof EmittedEvents, EmittedEvents
 
         if (actions?.notify) {
             this.performCustomEventHandling(ev);
+            PlatformPeg.get()?.maybeReadAloudNotification?.(ev, room);
 
             const store = SdkContextClass.instance.roomViewStore;
             const isViewingRoom = store.getRoomId() === room.roomId;

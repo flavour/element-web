@@ -378,6 +378,9 @@ export default class ElectronPlatform extends BasePlatform {
     public loudNotification(ev: MatrixEvent, room: Room): void {
         this.electron.send("loudNotification");
 
+    }
+
+    public maybeReadAloudNotification(ev: MatrixEvent, room: Room): void {
         const messageText = this.extractTtsText(ev);
         if (!messageText) {
             return;
@@ -401,7 +404,7 @@ export default class ElectronPlatform extends BasePlatform {
         }
 
         const allowlist = await this.getStringArraySetting(MATRIX_TTS_ALLOWLIST_SETTING, []);
-        if (allowlist.length === 0 || !sender || !allowlist.includes(sender)) {
+        if (allowlist.length === 0 || !sender || !this.senderMatchesAllowlist(sender, allowlist)) {
             return;
         }
 
@@ -538,6 +541,35 @@ export default class ElectronPlatform extends BasePlatform {
         } catch {
             return fallback;
         }
+    }
+
+    private senderMatchesAllowlist(sender: string, allowlist: string[]): boolean {
+        const senderLocalpart = this.getMxidLocalpart(sender);
+        return allowlist.some((entry) => {
+            const normalizedEntry = entry.trim();
+            if (!normalizedEntry) {
+                return false;
+            }
+
+            if (normalizedEntry.startsWith("@")) {
+                return normalizedEntry === sender;
+            }
+
+            return senderLocalpart !== null && normalizedEntry === senderLocalpart;
+        });
+    }
+
+    private getMxidLocalpart(mxid: string): string | null {
+        if (!mxid.startsWith("@")) {
+            return null;
+        }
+
+        const colonIndex = mxid.indexOf(":");
+        if (colonIndex <= 1) {
+            return null;
+        }
+
+        return mxid.slice(1, colonIndex);
     }
 
     public needsUrlTooltips(): boolean {
