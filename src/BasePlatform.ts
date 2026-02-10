@@ -284,6 +284,8 @@ export default abstract class BasePlatform {
         throw new Error("Unimplemented");
     }
 
+    public stopMatrixTtsPlayback(): void {}
+
     /**
      * Get our platform specific EventIndexManager.
      *

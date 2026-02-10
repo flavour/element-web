@@ -114,6 +114,8 @@ export default class ElectronPlatform extends BasePlatform {
     private clientStartedPromiseWithResolvers = Promise.withResolvers<void>();
     private matrixTtsQueue: MatrixTtsQueueItem[] = [];
     private matrixTtsProcessing = false;
+    private activeMatrixTtsAudio?: HTMLAudioElement;
+    private activeMatrixTtsPlaybackResolver?: () => void;
 
     public constructor() {
         super();
@@ -430,6 +432,12 @@ export default class ElectronPlatform extends BasePlatform {
         this.matrixTtsProcessing = true;
         try {
             while (this.matrixTtsQueue.length > 0) {
+                const isEnabled = await this.getBooleanSetting(MATRIX_TTS_ENABLED_SETTING, false);
+                if (!isEnabled) {
+                    this.matrixTtsQueue = [];
+                    break;
+                }
+
                 const queueItem = this.matrixTtsQueue.shift();
                 if (!queueItem) {
                     continue;
@@ -457,12 +465,49 @@ export default class ElectronPlatform extends BasePlatform {
     }
 
     private async playMatrixTtsAudio(audioBase64: string, mediaType: string): Promise<void> {
+        this.stopMatrixTtsPlayback();
+
         const audio = new Audio(`data:${mediaType};base64,${audioBase64}`);
+        this.activeMatrixTtsAudio = audio;
+
         await new Promise<void>((resolve) => {
-            audio.onended = () => resolve();
-            audio.onerror = () => resolve();
-            void audio.play().catch(() => resolve());
+            let settled = false;
+            const settle = (): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                audio.onended = null;
+                audio.onerror = null;
+                if (this.activeMatrixTtsAudio === audio) {
+                    this.activeMatrixTtsAudio = undefined;
+                }
+                if (this.activeMatrixTtsPlaybackResolver === settle) {
+                    this.activeMatrixTtsPlaybackResolver = undefined;
+                }
+                resolve();
+            };
+
+            this.activeMatrixTtsPlaybackResolver = settle;
+            audio.onended = settle;
+            audio.onerror = settle;
+            void audio.play().catch(() => settle());
         });
+    }
+
+    public stopMatrixTtsPlayback(): void {
+        const audio = this.activeMatrixTtsAudio;
+        if (audio) {
+            audio.pause();
+            audio.currentTime = 0;
+            this.activeMatrixTtsAudio = undefined;
+        }
+
+        if (this.activeMatrixTtsPlaybackResolver) {
+            const settle = this.activeMatrixTtsPlaybackResolver;
+            this.activeMatrixTtsPlaybackResolver = undefined;
+            settle();
+        }
     }
 
     private async getBooleanSetting(settingName: string, fallback: boolean): Promise<boolean> {

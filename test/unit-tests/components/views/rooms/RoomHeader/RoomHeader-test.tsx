@@ -61,6 +61,7 @@ import { UIFeature } from "../../../../../../src/settings/UIFeature";
 import { SettingLevel } from "../../../../../../src/settings/SettingLevel";
 import { ElementCallMemberEventType } from "../../../../../../src/call-types";
 import { defaultWatchManager } from "../../../../../../src/settings/Settings.tsx";
+import PlatformPeg from "../../../../../../src/PlatformPeg";
 
 jest.mock("../../../../../../src/utils/ShieldUtils");
 jest.mock("../../../../../../src/hooks/right-panel/useCurrentPhase", () => ({
@@ -225,6 +226,48 @@ describe("RoomHeader", () => {
 
         await user.click(getByLabelText(document.body, "Notifications"));
         expect(setCardSpy).toHaveBeenCalledWith({ phase: RightPanelPhases.NotificationPanel });
+    });
+
+    describe("Matrix TTS controls", () => {
+        it("shows a TTS toggle and persists On state", async () => {
+            const user = userEvent.setup();
+            const setSettingValue = jest.fn().mockResolvedValue(undefined);
+            jest.spyOn(PlatformPeg, "get").mockReturnValue({
+                supportsSetting: (settingName?: string) => settingName === "Electron.matrixTtsEnabled",
+                getSettingValue: jest.fn().mockResolvedValue(false),
+                setSettingValue,
+                stopMatrixTtsPlayback: jest.fn(),
+            } as any);
+
+            render(<RoomHeader room={room} />, getWrapper());
+
+            const toggle = await screen.findByRole("button", { name: "Matrix TTS Off" });
+            await user.click(toggle);
+
+            expect(setSettingValue).toHaveBeenCalledWith("Electron.matrixTtsEnabled", true);
+            await screen.findByRole("button", { name: "Matrix TTS On" });
+        });
+
+        it("shows Stop when enabled and stops playback without toggling", async () => {
+            const user = userEvent.setup();
+            const setSettingValue = jest.fn().mockResolvedValue(undefined);
+            const stopMatrixTtsPlayback = jest.fn();
+            jest.spyOn(PlatformPeg, "get").mockReturnValue({
+                supportsSetting: (settingName?: string) => settingName === "Electron.matrixTtsEnabled",
+                getSettingValue: jest.fn().mockResolvedValue(true),
+                setSettingValue,
+                stopMatrixTtsPlayback,
+            } as any);
+
+            render(<RoomHeader room={room} />, getWrapper());
+
+            const stopButton = await screen.findByRole("button", { name: "Stop" });
+            await user.click(stopButton);
+
+            expect(stopMatrixTtsPlayback).toHaveBeenCalledTimes(1);
+            expect(setSettingValue).not.toHaveBeenCalledWith("Electron.matrixTtsEnabled", false);
+            await screen.findByRole("button", { name: "Matrix TTS On" });
+        });
     });
 
     it("should show both call buttons in rooms smaller than 3 members", async () => {

@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Com
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { type JSX, useCallback, useState } from "react";
+import React, { type JSX, useCallback, useEffect, useState } from "react";
 import { Text, Button, IconButton, Menu, MenuItem, Tooltip } from "@vector-im/compound-web";
 import VideoCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/video-call-solid";
 import VoiceCallIcon from "@vector-im/compound-design-tokens/assets/web/icons/voice-call-solid";
@@ -57,6 +57,9 @@ import { ToggleableIcon } from "./toggle/ToggleableIcon.tsx";
 import { CurrentRightPanelPhaseContextProvider } from "../../../../contexts/CurrentRightPanelPhaseContext.tsx";
 import { LocalRoom } from "../../../../models/LocalRoom.ts";
 import { useIsEncrypted } from "../../../../hooks/useIsEncrypted.ts";
+import PlatformPeg from "../../../../PlatformPeg.ts";
+
+const MATRIX_TTS_ENABLED_SETTING = "Electron.matrixTtsEnabled";
 
 function RoomHeaderButtons({
     room,
@@ -88,6 +91,33 @@ function RoomHeaderButtons({
     const isDirectMessage = !!dmMember;
 
     const notificationsEnabled = useFeatureEnabled("feature_notifications");
+    const platform = PlatformPeg.get();
+    const supportsMatrixTts = platform?.supportsSetting(MATRIX_TTS_ENABLED_SETTING) ?? false;
+    const [isMatrixTtsEnabled, setIsMatrixTtsEnabled] = useState(false);
+
+    useEffect(() => {
+        if (!supportsMatrixTts) {
+            return;
+        }
+
+        let cancelled = false;
+        void platform
+            ?.getSettingValue(MATRIX_TTS_ENABLED_SETTING)
+            .then((value) => {
+                if (!cancelled) {
+                    setIsMatrixTtsEnabled(Boolean(value));
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setIsMatrixTtsEnabled(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [platform, supportsMatrixTts]);
 
     const videoClick = useCallback(
         (ev: React.MouseEvent) => videoCallClick(ev, callOptions[0]),
@@ -323,6 +353,36 @@ function RoomHeaderButtons({
                 <>
                     {!isVideoRoom && videoCallButton}
                     {!isVideoRoom && voiceCallButton}
+                </>
+            )}
+
+            {supportsMatrixTts && (
+                <>
+                    <Button
+                        size="sm"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            const nextValue = !isMatrixTtsEnabled;
+                            setIsMatrixTtsEnabled(nextValue);
+                            void platform?.setSettingValue(MATRIX_TTS_ENABLED_SETTING, nextValue);
+                        }}
+                        aria-label={`Matrix TTS ${isMatrixTtsEnabled ? _t("common|on") : _t("common|off")}`}
+                    >
+                        {`TTS ${isMatrixTtsEnabled ? _t("common|on") : _t("common|off")}`}
+                    </Button>
+
+                    {isMatrixTtsEnabled && (
+                        <Button
+                            size="sm"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                platform?.stopMatrixTtsPlayback();
+                            }}
+                            aria-label={_t("action|stop")}
+                        >
+                            {_t("action|stop")}
+                        </Button>
+                    )}
                 </>
             )}
 

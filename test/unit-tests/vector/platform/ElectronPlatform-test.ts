@@ -273,6 +273,51 @@ describe("ElectronPlatform", () => {
             platform.setNotificationCount(1);
             expect(mockElectron.send).toHaveBeenCalledWith("setBadgeCount", 1);
         });
+
+        it("does not enqueue Matrix TTS when disabled", async () => {
+            const platform = new ElectronPlatform();
+            // @ts-ignore private access for unit testing
+            const ipcCallSpy = jest.spyOn(platform.ipc, "call").mockResolvedValue(undefined);
+            mockElectron.getSettingValue.mockImplementation(async (settingName: string) => {
+                if (settingName === "Electron.matrixTtsEnabled") {
+                    return false;
+                }
+                return undefined;
+            });
+
+            const event = new MatrixEvent({
+                type: "m.room.message",
+                content: {
+                    body: "hello from matrix",
+                },
+                sender: "@alice:server.org",
+            });
+
+            platform.loudNotification(event, new Room("!room:server", {} as any, userId));
+            await Promise.resolve();
+
+            expect(ipcCallSpy).not.toHaveBeenCalledWith("matrixTtsWarmup");
+            expect(ipcCallSpy).not.toHaveBeenCalledWith("matrixTtsSynthesize", expect.anything());
+        });
+    });
+
+    describe("matrix tts", () => {
+        it("stopMatrixTtsPlayback stops current audio and resolves playback", () => {
+            const platform = new ElectronPlatform();
+            const pause = jest.fn();
+            const resolver = jest.fn();
+            // @ts-ignore private state setup for unit testing
+            platform.activeMatrixTtsAudio = { pause, currentTime: 5 };
+            // @ts-ignore private state setup for unit testing
+            platform.activeMatrixTtsPlaybackResolver = resolver;
+
+            platform.stopMatrixTtsPlayback();
+
+            expect(pause).toHaveBeenCalledTimes(1);
+            // @ts-ignore private state assertion for unit testing
+            expect(platform.activeMatrixTtsAudio).toBeUndefined();
+            expect(resolver).toHaveBeenCalledTimes(1);
+        });
     });
 
     describe("spellcheck", () => {
