@@ -45,6 +45,7 @@ import { IPCManager } from "./IPCManager";
 import { _t } from "../../languageHandler";
 import { BadgeOverlayRenderer } from "../../favicon";
 import GenericToast from "../../components/views/toasts/GenericToast.tsx";
+import { splitTextForTts } from "./matrixTts";
 
 interface SquirrelUpdate {
     releaseNotes: string;
@@ -54,6 +55,19 @@ interface SquirrelUpdate {
 }
 
 const SSO_ID_KEY = "element-desktop-ssoid";
+const MATRIX_TTS_ENABLED_SETTING = "Electron.matrixTtsEnabled";
+const MATRIX_TTS_ALLOWLIST_SETTING = "Electron.matrixTtsAllowlist";
+const MATRIX_TTS_MAX_CHUNK_SIZE_SETTING = "Electron.matrixTtsMaxChunkSize";
+const DEFAULT_MATRIX_TTS_MAX_CHUNK_SIZE = 220;
+
+interface MatrixTtsQueueItem {
+    text: string;
+}
+
+interface MatrixTtsAudioResponse {
+    audioBase64: string;
+    mediaType: string;
+}
 
 function platformFriendlyName(): string {
     // used to use window.process but the same info is available here
@@ -98,6 +112,8 @@ export default class ElectronPlatform extends BasePlatform {
     private config!: IConfigOptions;
     private supportedSettings?: Record<string, boolean>;
     private clientStartedPromiseWithResolvers = Promise.withResolvers<void>();
+    private matrixTtsQueue: MatrixTtsQueueItem[] = [];
+    private matrixTtsProcessing = false;
 
     public constructor() {
         super();
@@ -359,6 +375,124 @@ export default class ElectronPlatform extends BasePlatform {
 
     public loudNotification(ev: MatrixEvent, room: Room): void {
         this.electron.send("loudNotification");
+
+        const messageText = this.extractTtsText(ev);
+        if (!messageText) {
+            return;
+        }
+
+        void this.enqueueMatrixTtsForEvent(messageText, ev.getSender() ?? undefined, room.roomId);
+    }
+
+    private extractTtsText(ev: MatrixEvent): string | null {
+        const content = ev.getContent();
+        if (!content || typeof content.body !== "string") {
+            return null;
+        }
+        return content.body.trim() || null;
+    }
+
+    private async enqueueMatrixTtsForEvent(text: string, sender: string | undefined, roomId: string): Promise<void> {
+        const isEnabled = await this.getBooleanSetting(MATRIX_TTS_ENABLED_SETTING, false);
+        if (!isEnabled) {
+            return;
+        }
+
+        const allowlist = await this.getStringArraySetting(MATRIX_TTS_ALLOWLIST_SETTING, []);
+        if (allowlist.length === 0 || !sender || !allowlist.includes(sender)) {
+            return;
+        }
+
+        const maxChunkSize = await this.getNumberSetting(
+            MATRIX_TTS_MAX_CHUNK_SIZE_SETTING,
+            DEFAULT_MATRIX_TTS_MAX_CHUNK_SIZE,
+        );
+        const segments = splitTextForTts(text, maxChunkSize);
+        if (segments.length === 0) {
+            return;
+        }
+
+        logger.debug(
+            `Matrix TTS queued ${segments.length} segment(s) for room=${roomId} sender=${sender} maxChunkSize=${maxChunkSize}`,
+        );
+
+        this.matrixTtsQueue.push(...segments.map((segment) => ({ text: segment })));
+        if (!this.matrixTtsProcessing) {
+            void this.processMatrixTtsQueue();
+        }
+    }
+
+    private async processMatrixTtsQueue(): Promise<void> {
+        if (this.matrixTtsProcessing) {
+            return;
+        }
+
+        this.matrixTtsProcessing = true;
+        try {
+            while (this.matrixTtsQueue.length > 0) {
+                const queueItem = this.matrixTtsQueue.shift();
+                if (!queueItem) {
+                    continue;
+                }
+
+                try {
+                    await this.ipc.call("matrixTtsWarmup");
+                    const response = (await this.ipc.call("matrixTtsSynthesize", {
+                        text: queueItem.text,
+                    })) as MatrixTtsAudioResponse;
+
+                    if (!response?.audioBase64) {
+                        logger.warn("Matrix TTS synth returned no audio payload");
+                        continue;
+                    }
+
+                    await this.playMatrixTtsAudio(response.audioBase64, response.mediaType ?? "audio/wav");
+                } catch (error) {
+                    logger.warn("Matrix TTS queue item failed", error);
+                }
+            }
+        } finally {
+            this.matrixTtsProcessing = false;
+        }
+    }
+
+    private async playMatrixTtsAudio(audioBase64: string, mediaType: string): Promise<void> {
+        const audio = new Audio(`data:${mediaType};base64,${audioBase64}`);
+        await new Promise<void>((resolve) => {
+            audio.onended = () => resolve();
+            audio.onerror = () => resolve();
+            void audio.play().catch(() => resolve());
+        });
+    }
+
+    private async getBooleanSetting(settingName: string, fallback: boolean): Promise<boolean> {
+        try {
+            const value = await this.getSettingValue(settingName);
+            return typeof value === "boolean" ? value : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    private async getNumberSetting(settingName: string, fallback: number): Promise<number> {
+        try {
+            const value = await this.getSettingValue(settingName);
+            return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    private async getStringArraySetting(settingName: string, fallback: string[]): Promise<string[]> {
+        try {
+            const value = await this.getSettingValue(settingName);
+            if (!Array.isArray(value)) {
+                return fallback;
+            }
+            return value.filter((item): item is string => typeof item === "string");
+        } catch {
+            return fallback;
+        }
     }
 
     public needsUrlTooltips(): boolean {
